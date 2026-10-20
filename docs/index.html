@@ -74,6 +74,7 @@
       .btn { cursor: pointer; white-space: nowrap; }
       .btn:hover { background: var(--fg); color: var(--ink); }
       .btn:hover * { color: var(--ink) !important; }
+      .btn:disabled { opacity: 0.5; cursor: wait; }
       .tab { cursor: pointer; padding: 0 0.5rem; color: var(--dim); }
       .tab:hover { color: var(--hi); }
       .tab[aria-selected="true"], .tab[aria-pressed="true"] { background: var(--ok); color: var(--ink); }
@@ -465,6 +466,7 @@ console                              <span class="text-ok">235 KB</span> of wasm
                   <option value="over-50m">over 50M requests/day</option>
                 </select>
               </div>
+              <input type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true" style="display: none" />
               <div class="mt-5 flex flex-wrap items-center gap-3">
                 <button type="submit" class="btn bg-ok px-3 py-1.5 font-semibold text-ink hover:bg-hi">[enter] request access</button>
                 <span class="text-[12px] text-dim">one email when there is something to try. no newsletter.</span>
@@ -617,8 +619,7 @@ curl -s http://localhost:8081/{{provider}}/v1/charges \
   -d amount=4200 -d currency=usd</script>
 
     <script>
-      const REPOSITORY = "https://github.com/sepehrmohseni/phantom";
-      const WAITLIST_ENDPOINT = "";
+      const WAITLIST_ENDPOINT = "https://formspree.io/f/mgaojyln";
       const TONES = { dim: "text-dim", fg: "text-fg", hi: "text-hi", ok: "text-ok", bad: "text-bad", warn: "text-warn", info: "text-info", odd: "text-odd", rule: "text-rule" };
       const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const pause = (ms) => new Promise((resolve) => setTimeout(resolve, reducedMotion ? 0 : ms));
@@ -1641,27 +1642,37 @@ curl -s http://localhost:8081/{{provider}}/v1/charges \
           form.email.focus();
           return;
         }
+        const button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
         line(log, [["dim", "> registering " + email + " ..."]]);
-        if (WAITLIST_ENDPOINT) {
-          try {
-            const response = await fetch(WAITLIST_ENDPOINT, {
-              method: "POST",
-              headers: { "content-type": "application/json", accept: "application/json" },
-              body: JSON.stringify({ email, company, volume, source: "phantom-landing" }),
-            });
-            if (!response.ok) throw new Error("http " + response.status);
-            line(log, [["ok", "ok. you're on the list."]]);
+        try {
+          const response = await fetch(WAITLIST_ENDPOINT, {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({
+              email,
+              company,
+              volume,
+              source: "phantom-landing",
+              _subject: "phantom cloud waitlist: " + (company || email.split("@")[1]),
+              _gotcha: form.elements.namedItem("_gotcha").value,
+            }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (response.ok) {
+            line(log, [["ok", "ok. you're on the list. we'll write to " + email + " when there's something to try."]]);
             form.reset();
-          } catch (error) {
-            line(log, [["bad", "failed: " + error.message + ". try again in a minute."]]);
+          } else {
+            const reasons = Array.isArray(result.errors) && result.errors.length
+              ? result.errors.map((problem) => (problem.field ? problem.field + ": " : "") + problem.message)
+              : [result.error || "http " + response.status];
+            reasons.forEach((reason) => line(log, [["bad", "error: " + reason]]));
           }
-          return;
+        } catch (error) {
+          line(log, [["bad", "failed: couldn't reach the waitlist (" + error.message + "). try again in a minute."]]);
+        } finally {
+          button.disabled = false;
         }
-        const title = "cloud waitlist: " + (company || email.split("@")[1]);
-        const body = ["email: " + email, "company: " + (company || "-"), "traffic: " + volume, "", "anything else we should know:"].join("\n");
-        window.open(REPOSITORY + "/issues/new?labels=cloud-waitlist&title=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body), "_blank", "noopener");
-        line(log, [["ok", "opened a prefilled issue on github. submit it and you're on the list."]]);
-        line(log, [["dim", "it's public, so remove anything you'd rather not share."]]);
       });
     </script>
   </body>
