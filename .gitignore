@@ -1,0 +1,4 @@
+/target
+/crates/phantom-ui/dist
+*.redb
+.DS_Store

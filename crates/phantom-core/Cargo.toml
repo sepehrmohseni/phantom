@@ -1,0 +1,26 @@
+[package]
+name = "phantom-core"
+description = "Models, structural JSON diffing and redb storage for phantom."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = ["storage"]
+storage = ["dep:redb", "dep:bincode"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+redb = { workspace = true, optional = true }
+bincode = { workspace = true, optional = true }

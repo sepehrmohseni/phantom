@@ -1,0 +1,29 @@
+[package]
+name = "phantom-engine"
+description = "Capture proxy, outbound sandbox and replay runner for phantom."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+phantom-core = { workspace = true, features = ["storage"] }
+tokio.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+axum.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+tower.workspace = true
+reqwest.workspace = true
+bytes.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true

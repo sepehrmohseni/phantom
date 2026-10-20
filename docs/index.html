@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>phantom(1) - replay production traffic against your next build</title>
+    <meta name="description" content="Phantom records real HTTP traffic and every third-party call it triggers, then replays it against a new build with all outbound calls answered from the recording. One Rust binary." />
+    <meta property="og:title" content="phantom(1)" />
+    <meta property="og:description" content="Replay production traffic against your next build. Stripe never finds out." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://sepehrmohseni.github.io/phantom/" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0d0b'/%3E%3Cpath d='M4 13V4.5C4 3 5.3 2 8 2s4 1 4 2.5V13l-1.4-1.2L9.3 13 8 11.8 6.7 13l-1.3-1.2z' fill='%235fff87'/%3E%3Crect x='6' y='5' width='1.4' height='2' fill='%230a0d0b'/%3E%3Crect x='8.8' y='5' width='1.4' height='2' fill='%230a0d0b'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#0a0d0b",
+              ink2: "#0f1411",
+              ink3: "#16201a",
+              rule: "#26332b",
+              dim: "#6a7c70",
+              fg: "#bfcbc3",
+              hi: "#eaf6ee",
+              ok: "#5fff87",
+              bad: "#ff5f5f",
+              warn: "#ffaf00",
+              info: "#5fd7ff",
+              odd: "#ff87ff",
+            },
+            fontFamily: {
+              mono: ["IBM Plex Mono", "ui-monospace", "Menlo", "Consolas", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root { --ink: #0a0d0b; --ink2: #0f1411; --ink3: #16201a; --rule: #26332b; --dim: #6a7c70; --fg: #bfcbc3; --hi: #eaf6ee; --ok: #5fff87; }
+      html { scroll-behavior: smooth; scroll-padding-top: 2.5rem; }
+      @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+      html, body { background: var(--ink); color: var(--fg); }
+      body { margin: 0; font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+      body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60; background: repeating-linear-gradient(to bottom, transparent 0, transparent 2px, rgba(0, 0, 0, 0.2) 3px); }
+      ::selection { background: var(--ok); color: var(--ink); }
+      a { color: inherit; }
+      .glow { text-shadow: 0 0 12px rgba(95, 255, 135, 0.45); }
+      .pane { position: relative; border: 1px solid var(--rule); background: var(--ink); }
+      .pane-head { position: absolute; top: -0.8em; left: 0.75rem; right: 0.75rem; display: flex; justify-content: space-between; gap: 1rem; line-height: 1.5; white-space: nowrap; pointer-events: none; }
+      .pane-head > * { background: var(--ink); padding: 0 0.4rem; pointer-events: auto; overflow: hidden; text-overflow: ellipsis; }
+      .sh { color: var(--ok); font-weight: 600; letter-spacing: 0.02em; }
+      .indent { margin-left: 1.5rem; }
+      @media (min-width: 640px) { .indent { margin-left: 2.5rem; } }
+      .cursor { display: inline-block; width: 0.6em; height: 1.1em; vertical-align: -0.15em; background: var(--ok); animation: blink 1.05s steps(1) infinite; }
+      @keyframes blink { 50% { opacity: 0; } }
+      @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+      .win { padding: 0 0.5rem; }
+      .win.active { background: var(--ink); color: var(--ok); }
+      .link { text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+      .link:hover { color: var(--ink); background: var(--ok); text-decoration: none; }
+      .field { background: transparent; border: 0; border-bottom: 1px solid var(--rule); outline: none; color: var(--hi); caret-color: var(--ok); padding: 0.15rem 0; width: 100%; font: inherit; border-radius: 0; }
+      .field:focus { border-bottom-color: var(--ok); }
+      .field::placeholder { color: var(--dim); opacity: 0.6; }
+      select.field { appearance: none; cursor: pointer; }
+      select.field option { background: var(--ink2); }
+      .area { background: var(--ink2); border: 1px solid var(--rule); outline: none; color: var(--hi); caret-color: var(--ok); width: 100%; font: inherit; font-size: 12.5px; line-height: 1.55; padding: 0.5rem 0.65rem; resize: vertical; border-radius: 0; }
+      .area:focus { border-color: var(--ok); }
+      .keycap { display: inline-block; min-width: 1.3em; padding: 0 0.3em; text-align: center; color: var(--ink); background: var(--dim); }
+      .btn { cursor: pointer; white-space: nowrap; }
+      .btn:hover { background: var(--fg); color: var(--ink); }
+      .btn:hover * { color: var(--ink) !important; }
+      .tab { cursor: pointer; padding: 0 0.5rem; color: var(--dim); }
+      .tab:hover { color: var(--hi); }
+      .tab[aria-selected="true"], .tab[aria-pressed="true"] { background: var(--ok); color: var(--ink); }
+      .code { position: relative; border-left: 1px solid var(--rule); background: var(--ink2); }
+      .code pre { overflow-x: auto; padding: 0.6rem 3.75rem 0.6rem 0.9rem; font-size: 12.5px; line-height: 1.6; margin: 0; }
+      .code .copy { position: absolute; top: 0; right: 0; font-size: 11px; padding: 0 0.45rem; color: var(--dim); background: var(--ink2); border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+      .check { cursor: pointer; display: grid; grid-template-columns: 2.4rem minmax(0, 1fr); padding: 0.15rem 0.3rem; }
+      .check:hover { background: var(--ink3); }
+      .check input { position: absolute; opacity: 0; pointer-events: none; }
+      .check .box::before { content: "[ ]"; color: var(--dim); }
+      .check input:checked + .box::before { content: "[x]"; color: var(--ok); }
+      .check input:focus-visible + .box { outline: 1px solid var(--ok); }
+      #shell { cursor: text; }
+      #shell-input { position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
+      * { scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+      *::-webkit-scrollbar { width: 7px; height: 7px; }
+      *::-webkit-scrollbar-thumb { background: var(--rule); }
+      table.grid-table td, table.grid-table th { border: 1px solid var(--rule); padding: 0.35rem 0.6rem; vertical-align: top; }
+    </style>
+  </head>
+  <body class="bg-ink font-mono text-fg">
+    <nav class="fixed inset-x-0 top-0 z-50 flex select-none items-stretch whitespace-nowrap bg-ok text-[12px] font-semibold text-ink">
+      <a href="#top" class="bg-hi px-2">[phantom]</a>
+      <div class="flex min-w-0 overflow-x-auto [scrollbar-width:none]">
+        <a href="#man" data-window="man" class="win">0:man</a>
+        <a href="#demo" data-window="demo" class="win">1:shell</a>
+        <a href="#why" data-window="why" class="win">2:why</a>
+        <a href="#start" data-window="start" class="win">3:setup</a>
+        <a href="#play" data-window="play" class="win">4:play</a>
+        <a href="#bench" data-window="bench" class="win">5:bench</a>
+        <a href="#cloud" data-window="cloud" class="win">6:cloud</a>
+      </div>
+      <a href="https://github.com/sepehrmohseni/phantom" class="ml-auto hidden px-2 hover:bg-ink hover:text-ok lg:inline">github.com/sepehrmohseni/phantom</a>
+      <span id="clock" class="ml-auto bg-hi px-2 tabular-nums lg:ml-0">00:00:00</span>
+    </nav>
+
+    <main id="top" class="mx-auto max-w-[64rem] px-4 pb-16 pt-12 sm:px-6">
+      <div class="flex justify-between gap-4 text-dim">
+        <span>PHANTOM(1)</span>
+        <span class="hidden sm:inline">General Commands Manual</span>
+        <span>PHANTOM(1)</span>
+      </div>
+
+      <section id="man" class="mt-8">
+        <h2 class="sh">NAME</h2>
+        <p class="indent mt-1"><span class="text-hi">phantom</span> - record real HTTP traffic, replay it against a new build, answer every third-party call from the recording</p>
+
+        <h1 class="mt-10 text-[23px] font-semibold leading-tight text-hi sm:text-[44px]">
+          replay production traffic<br />against your next build.<br /><span class="glow text-ok">stripe never finds out.</span><span class="cursor ml-2"></span>
+        </h1>
+
+        <p class="mt-6 max-w-[46rem]">
+          Phantom sits in front of your service and beside its outbound calls, and records both sides of every request.
+          Later it fires those requests at a staging build, serves the third-party responses from disk, and tells you what changed:
+          which JSON paths drifted, and which outbound calls were added, dropped or made twice.
+        </p>
+
+        <div class="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div class="code flex min-w-0 flex-1 items-center sm:max-w-[38rem]">
+            <span class="pl-3 text-dim">$</span>
+            <pre class="min-w-0 flex-1 text-hi" data-copy>git clone https://github.com/sepehrmohseni/phantom &amp;&amp; cd phantom &amp;&amp; make setup &amp;&amp; make</pre>
+          </div>
+          <div class="flex gap-2">
+            <a href="#start" class="btn border border-rule px-3 py-2 text-hi">[setup guide]</a>
+            <a href="#cloud" class="btn bg-ok px-3 py-2 font-semibold text-ink hover:bg-hi">[cloud waitlist]</a>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo" class="mt-14">
+        <div class="pane">
+          <div class="pane-head text-[12px]">
+            <span class="text-hi">you@laptop: ~/shop</span>
+            <span class="flex gap-3">
+              <button id="shell-replay" type="button" class="btn text-dim">[replay story]</button>
+              <button id="shell-take" type="button" class="btn text-ok">[type yourself]</button>
+            </span>
+          </div>
+          <div id="shell" class="h-[30rem] overflow-auto whitespace-pre px-4 pb-4 pt-6 text-[12.5px] leading-[1.65]" aria-label="interactive demo shell"><div id="shell-log" role="log" aria-live="polite"></div></div>
+          <input id="shell-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="shell input" />
+        </div>
+        <p class="mt-3 text-[13px] text-dim">
+          This is a simulated shell with a small shop service in it, so you can try the whole flow without installing anything.
+          The story plays first. Then the prompt is yours: click the terminal and type <span class="text-hi">help</span>, or press <span class="keycap">tab</span> to complete commands.
+          The recording and the replay both return <span class="text-hi">201</span>. The double charge only shows up as outbound drift.
+        </p>
+      </section>
+
+      <section id="why" class="mt-16">
+        <h2 class="sh">WHY YOU MIGHT NEED THIS</h2>
+        <div class="indent mt-2 max-w-[48rem] space-y-4">
+          <p>
+            Most backend bugs that reach production aren't crashes. A field changes type. A call happens twice. A retry turns out not to be idempotent.
+            A provider sends back a response nobody handled.
+          </p>
+          <p>
+            Unit tests miss these because they mock the provider with whatever the author expected it to return. Staging misses them because nobody sends staging the requests real users send.
+            You hear about it from a support ticket, or from Stripe.
+          </p>
+          <p class="text-hi">
+            Phantom treats the traffic you already have as the test suite. Every captured request is a test case, and its third-party calls become fixtures you never had to write.
+          </p>
+        </div>
+
+        <div class="indent mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div class="pane px-4 pb-3 pt-5">
+            <div class="pane-head text-[12px]"><span class="text-hi">where it pays off</span></div>
+            <ul class="space-y-2">
+              <li><span class="text-ok">+</span> refactoring billing, checkout, signup, anything that talks to payment, email or SMS providers</li>
+              <li><span class="text-ok">+</span> framework, ORM or language upgrades on a service whose tests you don't fully trust</li>
+              <li><span class="text-ok">+</span> rewrites and migrations, where the new service has to answer exactly like the old one</li>
+              <li><span class="text-ok">+</span> bumping a provider SDK and wanting to see every request that changed shape</li>
+              <li><span class="text-ok">+</span> reproducing a production bug locally from the exact request that caused it</li>
+              <li><span class="text-ok">+</span> inheriting a legacy service and finding out what it actually does on the wire</li>
+            </ul>
+          </div>
+          <div class="pane px-4 pb-3 pt-5">
+            <div class="pane-head text-[12px]"><span class="text-hi">where it doesn't</span></div>
+            <ul class="space-y-2">
+              <li><span class="text-dim">-</span> services with no outbound calls and good tests. A plain diff of responses, or no tool at all, is fine</li>
+              <li><span class="text-dim">-</span> streaming and websocket heavy apps. Phantom buffers whole HTTP bodies</li>
+              <li><span class="text-dim">-</span> load testing. Replays are sequential on purpose, one session at a time</li>
+              <li><span class="text-dim">-</span> anything that can't be pointed at a proxy for its third-party calls</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="indent pane mt-8 px-4 pb-4 pt-5">
+          <div class="pane-head text-[12px]"><span class="text-hi">does it fit you?</span><span class="text-dim">tick what's true</span></div>
+          <div id="fit" class="space-y-0.5">
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>your service calls APIs you don't own: payments, email, SMS, maps, LLMs, a partner's API</span></label>
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>some of those calls cost money or have side effects you can't undo</span></label>
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>your tests mock those clients by hand</span></label>
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>staging can't reach the real providers, or uses sandbox keys that behave differently</span></label>
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>you're about to refactor, upgrade a framework, or rewrite something in another language</span></label>
+            <label class="check"><input type="checkbox" /><span class="box"></span><span>an incident has come from a payload change nobody noticed in review</span></label>
+          </div>
+          <div class="mt-4 flex flex-wrap items-baseline gap-x-3 border-t border-rule pt-3">
+            <span id="fit-score" class="tabular-nums text-dim">0/6</span>
+            <span id="fit-verdict" class="text-dim">tick a few lines</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-16">
+        <h2 class="sh">SYNOPSIS</h2>
+        <pre class="indent mt-2 overflow-x-auto text-[13px] leading-relaxed"><span class="text-hi">phantom start</span>  [<span class="text-info">--upstream</span> URL] [<span class="text-info">--inbound-port</span> 8080] [<span class="text-info">--outbound-port</span> 8081] [<span class="text-info">--ui-port</span> 9000]
+               [<span class="text-info">--db-path</span> FILE] [<span class="text-info">--ignore-field</span> JSONPATH]... [<span class="text-info">--capture-queue</span> N]
+               [<span class="text-info">--bind</span> 127.0.0.1] [<span class="text-info">--ui-bind</span> 127.0.0.1]
+
+<span class="text-hi">phantom replay</span> [<span class="text-info">--api</span> URL] [<span class="text-info">--target</span> URL] [<span class="text-info">--session</span> ID]... [<span class="text-info">--json</span>]</pre>
+      </section>
+
+      <section id="start" class="mt-14">
+        <h2 class="sh">GETTING STARTED</h2>
+        <p class="indent mt-2 max-w-[48rem]">About ten minutes, most of it compiling. Fill in your own addresses and every command below follows along.</p>
+
+        <div class="indent pane mt-6 px-4 pb-4 pt-5">
+          <div class="pane-head text-[12px]"><span class="text-hi">your setup</span><span class="text-dim">nothing leaves this page</span></div>
+          <div class="grid grid-cols-1 gap-x-6 gap-y-3 md:grid-cols-[9rem_minmax(0,1fr)]">
+            <label for="cfg-upstream" class="text-dim">service runs on</label>
+            <input id="cfg-upstream" class="field" value="http://localhost:3000" spellcheck="false" />
+            <label for="cfg-staging" class="text-dim">new build runs on</label>
+            <input id="cfg-staging" class="field" value="http://localhost:3001" spellcheck="false" />
+            <label for="cfg-ignore" class="text-dim">noisy fields</label>
+            <input id="cfg-ignore" class="field" value="$.created_at, $.request_id" spellcheck="false" placeholder="comma separated JSONPaths" />
+            <label for="cfg-provider" class="text-dim">third-party api</label>
+            <input id="cfg-provider" class="field" value="https://api.stripe.com" spellcheck="false" />
+          </div>
+        </div>
+
+        <ol class="indent mt-8 space-y-9">
+          <li>
+            <div class="text-hi"><span class="text-warn">1.</span> build it</div>
+            <p class="mt-1 text-dim">Needs a Rust toolchain. <span class="text-fg">make setup</span> adds the wasm target and installs trunk, which builds the console. Plain <span class="text-fg">cargo build</span> also works if you don't care about the console.</p>
+            <div class="code mt-2"><pre data-copy>git clone https://github.com/sepehrmohseni/phantom &amp;&amp; cd phantom
+make setup
+make
+sudo install target/release/phantom /usr/local/bin/</pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">2.</span> start it in front of your service</div>
+            <p class="mt-1 max-w-[48rem] text-dim">Phantom forwards everything on :8080 to your service and records it. Your service doesn't need to know yet. Everything binds to 127.0.0.1 by default; add <span class="text-fg">--bind 0.0.0.0</span> when traffic comes from other machines, and keep :8081 off anything public, since it will proxy to wherever it's asked.</p>
+            <div class="code mt-2"><pre data-copy data-bind="start"></pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">3.</span> send your outbound calls through :8081</div>
+            <p class="mt-1 max-w-[48rem] text-dim">
+              This is the one code change. Point the HTTP client you use for third-party calls at the sandbox, and copy <span class="text-info">x-phantom-trace-id</span> from the incoming request onto it.
+              Read the sandbox address from an env var, so production keeps calling the provider directly.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1 text-[12px]" role="tablist" aria-label="language">
+              <button class="tab" role="tab" data-lang="node" aria-selected="true">node</button>
+              <button class="tab" role="tab" data-lang="python" aria-selected="false">python</button>
+              <button class="tab" role="tab" data-lang="go" aria-selected="false">go</button>
+              <button class="tab" role="tab" data-lang="rust" aria-selected="false">rust</button>
+              <button class="tab" role="tab" data-lang="curl" aria-selected="false">curl</button>
+            </div>
+            <div class="code mt-2"><pre id="snippet" data-copy></pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">4.</span> record some traffic</div>
+            <p class="mt-1 max-w-[48rem] text-dim">
+              Use the app through :8080, run your end-to-end suite against :8080, or put phantom in front of a staging box for a day.
+              Watch sessions arrive in the console at <span class="text-fg">http://localhost:9000</span>.
+            </p>
+            <div class="code mt-2"><pre data-copy data-bind="record"></pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">5.</span> find the noise first</div>
+            <p class="mt-1 max-w-[48rem] text-dim">
+              Replay against the same build that recorded. Whatever drifts now is noise: ids, timestamps, anything random. Add those paths to <span class="text-info">--ignore-field</span> and restart.
+              Skip this step and you'll be chasing false alarms.
+            </p>
+            <div class="code mt-2"><pre data-copy data-bind="noise"></pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">6.</span> replay against the new build</div>
+            <p class="mt-1 text-dim">Start your branch somewhere else and point the replay at it. Exit code 0 means nothing drifted.</p>
+            <div class="code mt-2"><pre data-copy data-bind="replay"></pre></div>
+          </li>
+          <li>
+            <div class="text-hi"><span class="text-warn">7.</span> make it a CI step</div>
+            <p class="mt-1 max-w-[48rem] text-dim">Keep a phantom with a good recording somewhere your CI can reach, started with <span class="text-fg">--ui-bind 0.0.0.0</span> so the control plane answers on the network. It has no auth, so put it on a private network or behind your own proxy. Then replay each preview deploy against it.</p>
+            <div class="code mt-2"><pre data-copy data-bind="ci"></pre></div>
+          </li>
+        </ol>
+      </section>
+
+      <section id="play" class="mt-16">
+        <h2 class="sh">PLAYGROUND</h2>
+        <p class="indent mt-2 max-w-[48rem]">The same rules phantom uses, ported to the page. Edit anything; results update as you type.</p>
+
+        <div class="indent pane mt-7 px-4 pb-4 pt-5">
+          <div class="pane-head text-[12px]"><span class="text-hi">diff: recorded response vs replayed response</span><span class="text-dim">compute_json_diff</span></div>
+          <div class="mb-3 flex flex-wrap gap-1 text-[12px]">
+            <span class="text-dim">try:</span>
+            <button class="tab" data-diff-preset="checkout">the checkout bug</button>
+            <button class="tab" data-diff-preset="reorder">same data, different order</button>
+            <button class="tab" data-diff-preset="array">array item changed</button>
+            <button class="tab" data-diff-preset="rename">renamed field</button>
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label class="block"><span class="text-[12px] text-dim">recorded</span><textarea id="diff-left" class="area mt-1 h-56" spellcheck="false"></textarea></label>
+            <label class="block"><span class="text-[12px] text-dim">replay</span><textarea id="diff-right" class="area mt-1 h-56" spellcheck="false"></textarea></label>
+          </div>
+          <label class="mt-3 flex items-center gap-2"><span class="shrink-0 text-ok">--ignore-field</span><input id="diff-ignore" class="field" spellcheck="false" /></label>
+          <pre id="diff-out" class="mt-4 min-h-[5rem] overflow-x-auto whitespace-pre text-[12.5px] leading-relaxed"></pre>
+        </div>
+
+        <div class="indent pane mt-9 px-4 pb-4 pt-5">
+          <div class="pane-head text-[12px]"><span class="text-hi">matcher: which recording answers this call?</span><span class="text-dim">sandbox lookup</span></div>
+          <div class="mb-3 flex flex-wrap gap-1 text-[12px]">
+            <span class="text-dim">try:</span>
+            <button class="tab" data-match-preset="order">keys reordered</button>
+            <button class="tab" data-match-preset="nonce">new idempotency key</button>
+            <button class="tab" data-match-preset="amount">amount changed</button>
+            <button class="tab" data-match-preset="endpoint">different endpoint</button>
+          </div>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <div class="text-[12px] text-dim">recorded call</div>
+              <div class="mt-1 flex gap-2"><select id="m-left-method" class="field w-24" aria-label="recorded method"></select><input id="m-left-url" class="field" spellcheck="false" aria-label="recorded url" /></div>
+              <textarea id="m-left-body" class="area mt-2 h-32" spellcheck="false" aria-label="recorded body"></textarea>
+            </div>
+            <div>
+              <div class="text-[12px] text-dim">call made during the replay</div>
+              <div class="mt-1 flex gap-2"><select id="m-right-method" class="field w-24" aria-label="replayed method"></select><input id="m-right-url" class="field" spellcheck="false" aria-label="replayed url" /></div>
+              <textarea id="m-right-body" class="area mt-2 h-32" spellcheck="false" aria-label="replayed body"></textarea>
+            </div>
+          </div>
+          <pre id="match-out" class="mt-4 min-h-[6rem] overflow-x-auto whitespace-pre text-[12.5px] leading-relaxed"></pre>
+          <p class="mt-2 text-[12px] text-dim">The canonical form is what gets hashed. One difference from the Rust side: a float written as 1.0 shows up here as 1, because the browser drops the .0.</p>
+        </div>
+      </section>
+
+      <section class="mt-16">
+        <h2 class="sh">HOW A REPLAY IS JUDGED</h2>
+        <dl class="indent mt-3 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[8rem_minmax(0,1fr)]">
+          <dt class="text-hi">signature</dt>
+          <dd>SHA-256 over method, host, path, sorted query and the body with its keys sorted. Key order and whitespace don't matter; values do.</dd>
+          <dt class="text-hi">matching</dt>
+          <dd>Exact signature first. Then method and path, for bodies that carry nonces or idempotency keys, picking the closest unused recording so parallel calls don't get crossed. Then a call that was already used once, which is how retries and double charges stay visible instead of failing with a miss.</dd>
+          <dt class="text-hi">body diff</dt>
+          <dd>Recursive JSON diff with paths like <span class="text-info">$.items[2].status</span>. <span class="text-warn">100</span> and <span class="text-warn">100.0</span> are equal. Form-encoded bodies are compared field by field as well, and switching between JSON and form is a type mismatch. Anything else is compared as text, or as hex if it isn't UTF-8.</dd>
+          <dt class="text-hi">drift</dt>
+          <dd>Extra calls, missing calls, and request bodies that changed under a fallback match are reported next to the body diff. Any of them fails the run, even when the status code and the response look fine.</dd>
+          <dt class="text-hi">storage</dt>
+          <dd>redb: one file, ACID. A single writer batches up to 512 sessions per commit behind a bounded queue. If the disk can't keep up, captures are dropped and counted. Live requests never wait on storage.</dd>
+          <dt class="text-hi">secrets</dt>
+          <dd>Authorization, cookie and API-key headers on outbound calls are replaced with <span class="text-dim">[redacted]</span> before anything is written. Bodies are stored as they are.</dd>
+          <dt class="text-hi">console</dt>
+          <dd><span class="keycap">j</span> <span class="keycap">k</span> to move, <span class="keycap">r</span> to replay, <span class="keycap">:</span> for commands, <span class="keycap">?</span> for the rest. It's compiled into the binary.</dd>
+        </dl>
+      </section>
+
+      <section class="mt-14">
+        <h2 class="sh">DIAGNOSTICS</h2>
+        <dl class="indent mt-3 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-[15rem_minmax(0,1fr)]">
+          <dt class="text-bad">502 phantom_sandbox_miss</dt>
+          <dd>The new build made a call the recording never saw. That's usually a real finding, a new dependency. If it isn't, record again with the current code.</dd>
+          <dt class="text-bad">sessions have 0 outbound calls</dt>
+          <dd>The calls aren't reaching :8081, or they arrive without <span class="text-info">x-phantom-trace-id</span> while other requests are in flight. Check the header is copied from the incoming request.</dd>
+          <dt class="text-bad">HTTPS_PROXY does nothing</dt>
+          <dd>HTTPS through a proxy is a CONNECT tunnel, and phantom doesn't intercept TLS. Use the <span class="text-info">x-phantom-target-url</span> header or the base-url form shown in step 3.</dd>
+          <dt class="text-bad">every replay fails on one field</dt>
+          <dd>It's noise. Replay against the recording build, collect the paths that drift, and pass them to <span class="text-info">--ignore-field</span>.</dd>
+          <dt class="text-bad">dropped_sessions &gt; 0</dt>
+          <dd>The disk fell behind a burst and captures were shed to keep requests fast. Raise <span class="text-info">--capture-queue</span> or record a sample.</dd>
+          <dt class="text-bad">403 from the control plane</dt>
+          <dd>It only answers to localhost, and refuses cross-origin browser requests. Start it with <span class="text-info">--ui-bind 0.0.0.0</span> to reach it from other hosts, or <span class="text-info">--cors-origin</span> for a page on another origin.</dd>
+          <dt class="text-bad">no replay target given</dt>
+          <dd>In record mode phantom will not guess where to replay, because the default upstream is often production. Pass <span class="text-info">--target</span>, or switch to sandbox mode with a staging url.</dd>
+          <dt class="text-bad">exit status 2</dt>
+          <dd>The replay couldn't run: the control plane is unreachable, the session id matches nothing, or the target build is down. The message says which.</dd>
+        </dl>
+      </section>
+
+      <section id="bench" class="mt-14">
+        <h2 class="sh">BENCHMARKS</h2>
+        <div class="indent mt-3">
+          <p class="text-dim">i7-13620H laptop, WSL2 with 4 vCPUs, everything on localhost, ApacheBench with keep-alive, a Node upstream returning 300 bytes of JSON, phantom 0.1.0 release build. Your hardware will give different numbers.</p>
+          <div class="pane mt-6">
+            <div class="pane-head text-[12px]"><span class="text-hi">$ cat bench.txt</span><span class="text-dim">2026-10-20</span></div>
+            <pre class="overflow-x-auto px-4 pb-4 pt-6 text-[12.5px] leading-[1.75]"><span class="text-dim">metric                               result</span>
+added latency per request, c=1       <span class="text-ok">0.13-0.15 ms</span>   <span class="text-dim">(mean 0.19-0.20 through phantom, 0.05 direct)</span>
+captured and persisted, c=32         <span class="text-ok">27k-30k req/s</span>   <span class="text-ok">|||||||||||||||||</span><span class="text-rule">||||||||</span> <span class="text-dim">upstream alone 45k</span>
+burst of 52,000 requests             <span class="text-ok">52,000 stored</span>, 0 dropped, 52 MB rss afterwards
+replay with 2 mocked calls           <span class="text-ok">1.24 ms</span> median of 25, double charge flagged in 1.95 ms
+release binary                       <span class="text-ok">8.5 MB</span>, links libc only, no openssl
+console                              <span class="text-ok">235 KB</span> of wasm gzipped</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-14">
+        <h2 class="sh">COMPARED TO</h2>
+        <div class="indent mt-3 overflow-x-auto">
+          <table class="grid-table w-full min-w-[640px] border-collapse text-left text-[13px]">
+            <thead class="text-dim">
+              <tr><th class="font-normal"></th><th class="font-normal">hand-written mocks</th><th class="font-normal">traffic mirroring</th><th class="font-normal text-ok">phantom</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="text-dim">inputs</td><td>made up</td><td>real</td><td class="text-hi">real</td></tr>
+              <tr><td class="text-dim">third-party responses</td><td>what someone thinks the api returns</td><td>live calls</td><td class="text-hi">recorded, served offline</td></tr>
+              <tr><td class="text-dim">replay a POST /charges</td><td>fine, it's fiction</td><td class="text-bad">charges the card again</td><td class="text-hi">no network egress</td></tr>
+              <tr><td class="text-dim">same result twice</td><td>yes</td><td>no</td><td class="text-hi">yes, with ignore rules for app noise</td></tr>
+              <tr><td class="text-dim">catches a duplicate outbound call</td><td>if someone wrote that assert</td><td>no</td><td class="text-hi">always</td></tr>
+              <tr><td class="text-dim">cost per scenario</td><td>code to write and keep alive</td><td>infra</td><td class="text-hi">none, every captured request is one</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="mt-14">
+        <h2 class="sh">EXIT STATUS</h2>
+        <dl class="indent mt-2 grid grid-cols-[2rem_minmax(0,1fr)] gap-y-1">
+          <dt class="text-ok">0</dt><dd>every replayed session passed</dd>
+          <dt class="text-bad">1</dt><dd>at least one session drifted</dd>
+          <dt class="text-warn">2</dt><dd>the replay could not run: unknown id, control plane unreachable, or the target is down</dd>
+        </dl>
+      </section>
+
+      <section id="cloud" class="mt-16">
+        <h2 class="sh">PHANTOM CLOUD</h2>
+        <div class="indent mt-2">
+          <p class="max-w-[46rem]">
+            The open source binary is the whole engine, and it stays that way. Cloud is for teams who want it running against every pull request without looking after a redb file on some box.
+          </p>
+          <ul class="mt-4 space-y-2">
+            <li><span class="text-ok">+</span> capture storage with retention and sampling, one catalogue per service</li>
+            <li><span class="text-ok">+</span> PII and card data tokenised at the edge before it leaves your network, consistently, so diffs still line up</li>
+            <li><span class="text-ok">+</span> a GitHub Actions check that replays a slice of real traffic against each preview deploy and blocks the merge on drift</li>
+            <li><span class="text-ok">+</span> pass rate, latency delta and new third-party dependencies across all your services in one place</li>
+          </ul>
+
+          <div class="pane mt-8 max-w-[40rem]">
+            <div class="pane-head text-[12px]"><span class="text-hi">$ phantom cloud --join-waitlist</span><span class="text-dim">early access</span></div>
+            <form id="waitlist" class="px-4 pb-4 pt-6" novalidate>
+              <div class="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-3 gap-y-3">
+                <label for="email" class="text-ok">email&gt;</label>
+                <input id="email" name="email" type="email" class="field" placeholder="you@company.com" autocomplete="email" required />
+                <label for="company" class="text-dim">company&gt;</label>
+                <input id="company" name="company" type="text" class="field" placeholder="optional" autocomplete="organization" />
+                <label for="volume" class="text-dim">traffic&gt;</label>
+                <select id="volume" name="volume" class="field">
+                  <option value="under-1m">under 1M requests/day</option>
+                  <option value="1m-50m">1M - 50M requests/day</option>
+                  <option value="over-50m">over 50M requests/day</option>
+                </select>
+              </div>
+              <div class="mt-5 flex flex-wrap items-center gap-3">
+                <button type="submit" class="btn bg-ok px-3 py-1.5 font-semibold text-ink hover:bg-hi">[enter] request access</button>
+                <span class="text-[12px] text-dim">one email when there is something to try. no newsletter.</span>
+              </div>
+              <pre id="waitlist-log" class="mt-4 min-h-[1.5rem] whitespace-pre-wrap text-[12.5px]" aria-live="polite"></pre>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="mt-14">
+        <h2 class="sh">SEE ALSO</h2>
+        <p class="indent mt-1">
+          <a class="link" href="https://github.com/sepehrmohseni/phantom">source</a>,
+          <a class="link" href="https://github.com/sepehrmohseni/phantom#readme">readme</a>,
+          <a class="link" href="https://github.com/sepehrmohseni/phantom/issues">issues</a>,
+          <span class="text-dim">redb(3), axum(3), leptos(3)</span>
+        </p>
+        <h2 class="sh mt-8">AUTHOR</h2>
+        <p class="indent mt-1">Sepehr Mohseni, <a class="link" href="https://github.com/sepehrmohseni">github.com/sepehrmohseni</a></p>
+      </section>
+
+      <div class="mt-16 flex justify-between gap-4 border-t border-rule pt-3 text-dim">
+        <span>phantom 0.1.0</span>
+        <span class="hidden sm:inline">MIT</span>
+        <span>PHANTOM(1)</span>
+      </div>
+    </main>
+
+    <script type="text/plain" id="snippet-node">const SANDBOX = process.env.PHANTOM_OUTBOUND;
+
+async function provider(path, init, incoming) {
+  const base = SANDBOX ? `${SANDBOX}${path}` : `{{provider}}${path}`;
+  const headers = { ...init.headers };
+  if (SANDBOX) {
+    headers["x-phantom-target-url"] = "{{provider}}";
+    headers["x-phantom-trace-id"] = incoming.get("x-phantom-trace-id") ?? "";
+  }
+  return fetch(base, { ...init, headers });
+}
+
+app.post("/checkout", async (req, res) => {
+  const charge = await provider("/v1/charges", {
+    method: "POST",
+    headers: { authorization: `Bearer ${process.env.STRIPE_KEY}` },
+    body: new URLSearchParams({ amount: String(req.body.amount), currency: "usd" }),
+  }, req).then((r) => r.json());
+  res.status(201).json({ charge_id: charge.id, amount: req.body.amount });
+});
+
+PHANTOM_OUTBOUND=http://localhost:8081 node server.js</script>
+    <script type="text/plain" id="snippet-python">import os
+import requests
+from flask import Flask, request
+
+SANDBOX = os.environ.get("PHANTOM_OUTBOUND")
+app = Flask(__name__)
+
+
+def provider(method, path, **kwargs):
+    headers = kwargs.pop("headers", {})
+    if SANDBOX:
+        url = f"{SANDBOX}/{{provider}}{path}"
+        headers["x-phantom-trace-id"] = request.headers.get("x-phantom-trace-id", "")
+    else:
+        url = f"{{provider}}{path}"
+    return requests.request(method, url, headers=headers, timeout=10, **kwargs)
+
+
+@app.post("/checkout")
+def checkout():
+    charge = provider(
+        "POST",
+        "/v1/charges",
+        data={"amount": request.json["amount"], "currency": "usd"},
+        headers={"authorization": f"Bearer {os.environ['STRIPE_KEY']}"},
+    ).json()
+    return {"charge_id": charge["id"], "amount": request.json["amount"]}, 201
+
+PHANTOM_OUTBOUND=http://localhost:8081 flask run --port 3000</script>
+    <script type="text/plain" id="snippet-go">type traceKey struct{}
+
+func withTrace(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), traceKey{}, r.Header.Get("x-phantom-trace-id"))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+type sandboxTransport struct {
+	base    http.RoundTripper
+	sandbox *url.URL
+}
+
+func (t sandboxTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	out := req.Clone(req.Context())
+	out.Header.Set("x-phantom-target-url", req.URL.Scheme+"://"+req.URL.Host)
+	if trace, ok := req.Context().Value(traceKey{}).(string); ok {
+		out.Header.Set("x-phantom-trace-id", trace)
+	}
+	out.URL.Scheme = t.sandbox.Scheme
+	out.URL.Host = t.sandbox.Host
+	out.Host = t.sandbox.Host
+	return t.base.RoundTrip(out)
+}
+
+func providerClient() *http.Client {
+	raw := os.Getenv("PHANTOM_OUTBOUND")
+	if raw == "" {
+		return http.DefaultClient
+	}
+	sandbox, err := url.Parse(raw)
+	if err != nil {
+		log.Fatalf("PHANTOM_OUTBOUND: %v", err)
+	}
+	return &http.Client{Transport: sandboxTransport{base: http.DefaultTransport, sandbox: sandbox}}
+}
+
+req, _ := http.NewRequestWithContext(r.Context(), "POST", "{{provider}}/v1/charges", body)
+resp, err := providerClient().Do(req)</script>
+    <script type="text/plain" id="snippet-rust">fn provider(client: &reqwest::Client, method: reqwest::Method, path: &str, trace_id: &str) -> reqwest::RequestBuilder {
+    match std::env::var("PHANTOM_OUTBOUND") {
+        Ok(sandbox) => client
+            .request(method, format!("{sandbox}{path}"))
+            .header("x-phantom-target-url", "{{provider}}")
+            .header("x-phantom-trace-id", trace_id),
+        Err(_) => client.request(method, format!("{{provider}}{path}")),
+    }
+}
+
+async fn checkout(headers: HeaderMap, State(app): State<App>, Json(order): Json<Order>) -> Result<Json<Receipt>, AppError> {
+    let trace_id = headers.get("x-phantom-trace-id").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let charge: Charge = provider(&app.http, reqwest::Method::POST, "/v1/charges", trace_id)
+        .bearer_auth(&app.stripe_key)
+        .form(&[("amount", order.amount.to_string()), ("currency", "usd".to_owned())])
+        .send()
+        .await?
+        .json()
+        .await?;
+    Ok(Json(Receipt { charge_id: charge.id, amount: order.amount }))
+}</script>
+    <script type="text/plain" id="snippet-curl">curl -s http://localhost:8081/v1/charges \
+  -H 'x-phantom-target-url: {{provider}}' \
+  -H "x-phantom-trace-id: $TRACE_ID" \
+  -H "authorization: Bearer $STRIPE_KEY" \
+  -d amount=4200 -d currency=usd
+
+curl -s http://localhost:8081/{{provider}}/v1/charges \
+  -H "x-phantom-trace-id: $TRACE_ID" \
+  -d amount=4200 -d currency=usd</script>
+
+    <script>
+      const REPOSITORY = "https://github.com/sepehrmohseni/phantom";
+      const WAITLIST_ENDPOINT = "";
+      const TONES = { dim: "text-dim", fg: "text-fg", hi: "text-hi", ok: "text-ok", bad: "text-bad", warn: "text-warn", info: "text-info", odd: "text-odd", rule: "text-rule" };
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const pause = (ms) => new Promise((resolve) => setTimeout(resolve, reducedMotion ? 0 : ms));
+      const $ = (id) => document.getElementById(id);
+
+      function line(parent, segments) {
+        const row = document.createElement("div");
+        if (!segments.length) row.innerHTML = "&nbsp;";
+        for (const [tone, text] of segments) {
+          const span = document.createElement("span");
+          span.className = TONES[tone] || "text-fg";
+          span.textContent = text;
+          row.append(span);
+        }
+        parent.append(row);
+        return row;
+      }
+
+      const clock = $("clock");
+      const tick = () => { clock.textContent = new Date().toISOString().slice(11, 19); };
+      tick();
+      setInterval(tick, 1000);
+
+      const windows = document.querySelectorAll(".win");
+      const sections = ["man", "demo", "why", "start", "play", "bench", "cloud"].map((id) => $(id));
+      let navQueued = false;
+      function highlightWindow() {
+        navQueued = false;
+        const line = window.innerHeight * 0.45;
+        const nearBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+        let current = sections[0].id;
+        for (const section of sections) {
+          if (section.getBoundingClientRect().top <= line) current = section.id;
+        }
+        if (nearBottom) current = sections[sections.length - 1].id;
+        windows.forEach((win) => win.classList.toggle("active", win.dataset.window === current));
+      }
+      window.addEventListener("scroll", () => {
+        if (!navQueued) {
+          navQueued = true;
+          requestAnimationFrame(highlightWindow);
+        }
+      }, { passive: true });
+      highlightWindow();
+
+      function attachCopy(pre) {
+        const holder = pre.closest(".code");
+        if (!holder || holder.querySelector(".copy")) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "copy btn";
+        button.textContent = "copy";
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.textContent);
+            button.textContent = "copied";
+          } catch {
+            button.textContent = "select it";
+          }
+          setTimeout(() => { button.textContent = "copy"; }, 1500);
+        });
+        holder.append(button);
+      }
+      document.querySelectorAll("[data-copy]").forEach(attachCopy);
+
+      const shell = {
+        view: $("shell"),
+        log: $("shell-log"),
+        input: $("shell-input"),
+        live: null,
+        typed: "",
+        busy: false,
+        generation: 0,
+        history: [],
+        cursor: 0,
+        state: null,
+      };
+
+      const COMMANDS = ["help", "phantom start &", "phantom replay --target http://localhost:3001", "phantom replay", "phantom --help", "curl -s localhost:8080/checkout -d '{\"amount\":4200,\"currency\":\"usd\"}'", "curl -s localhost:8080/health", "curl -s localhost:9000/api/sessions", "git switch refactor/payments", "git switch main", "git log --oneline", "git diff main", "git branch", "make staging", "echo $?", "clear", "history", "ls", "cat README.md"];
+
+      const BRANCH_LOG = {
+        main: [["c41d0e9", "checkout: store receipt id"], ["9a2b7f3", "add /health for the load balancer"], ["5e81c02", "first version of checkout"]],
+        "refactor/payments": [["e1f5a77", "payments: retry the charge once on timeout"], ["b37c9d4", "payments: send amount as string for the new ledger"], ["c41d0e9", "checkout: store receipt id"]],
+      };
+
+      function freshState() {
+        return { running: false, upstream: "http://localhost:3000", branch: "main", staging: null, sessions: [], status: 0 };
+      }
+
+      function hex(length) {
+        let out = "";
+        while (out.length < length) out += Math.floor(Math.random() * 16).toString(16);
+        return out;
+      }
+
+      function prompt(row) {
+        const branch = shell.state.branch;
+        for (const [tone, text] of [["info", "~/shop"], ["odd", " (" + branch + ")"], ["ok", " $ "]]) {
+          const span = document.createElement("span");
+          span.className = TONES[tone];
+          span.textContent = text;
+          row.append(span);
+        }
+      }
+
+      function renderLive() {
+        if (!shell.live) {
+          shell.live = document.createElement("div");
+          shell.live.setAttribute("aria-hidden", "true");
+          shell.view.append(shell.live);
+        }
+        shell.live.textContent = "";
+        prompt(shell.live);
+        const typed = document.createElement("span");
+        typed.className = "text-hi";
+        typed.textContent = shell.typed;
+        const cursor = document.createElement("span");
+        cursor.className = "cursor";
+        shell.live.append(typed, cursor);
+        shell.view.scrollTop = shell.view.scrollHeight;
+      }
+
+      function freeze() {
+        if (!shell.live) return;
+        shell.live.querySelector(".cursor")?.remove();
+        shell.live.removeAttribute("aria-hidden");
+        shell.log.append(shell.live);
+        shell.live = null;
+      }
+
+      function wipeScreen() {
+        shell.log.textContent = "";
+        if (shell.live) {
+          shell.live.remove();
+          shell.live = null;
+        }
+      }
+
+      function out(segments) {
+        line(shell.log, segments);
+        shell.view.scrollTop = shell.view.scrollHeight;
+      }
+
+      function tokens(command) {
+        return command.match(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g) || [];
+      }
+
+      function unquote(token) {
+        return token.replace(/'([^']*)'|"([^"]*)"/g, (_, single, double) => (single ?? double));
+      }
+
+      function flagValues(parts, name) {
+        const values = [];
+        for (let index = 0; index < parts.length; index += 1) {
+          if (parts[index] === name && index + 1 < parts.length) values.push(unquote(parts[index + 1]));
+          else if (parts[index].startsWith(name + "=")) values.push(unquote(parts[index].slice(name.length + 1)));
+        }
+        return values;
+      }
+
+      function flag(parts, name) {
+        return flagValues(parts, name)[0] ?? null;
+      }
+
+      function splitChain(command) {
+        const parts = [];
+        let current = "";
+        let quote = null;
+        for (let index = 0; index < command.length; index += 1) {
+          const character = command[index];
+          if (quote) {
+            if (character === quote) quote = null;
+            current += character;
+          } else if (character === "'" || character === "\"") {
+            quote = character;
+            current += character;
+          } else if (character === "&" && command[index + 1] === "&") {
+            parts.push(current);
+            current = "";
+            index += 1;
+          } else {
+            current += character;
+          }
+        }
+        parts.push(current);
+        return parts.map((part) => part.trim()).filter(Boolean);
+      }
+
+      function shortId(id) {
+        return id.slice(-7);
+      }
+
+      function run(command) {
+        const chain = splitChain(command);
+        for (const part of chain) {
+          shell.state.status = execute(part);
+          if (shell.state.status !== 0) break;
+        }
+      }
+
+      function execute(command) {
+        const background = command.endsWith("&");
+        const parts = tokens(background ? command.slice(0, -1) : command);
+        const [program, ...args] = parts;
+        const state = shell.state;
+        if (!program) return state.status;
+        switch (program) {
+          case "help":
+            out([["dim", "a fake shell with a fake shop service on :3000. things to try, roughly in order:"]]);
+            for (const [cmd, note] of [
+              ["phantom start &", "put phantom in front of the shop"],
+              ["curl -s localhost:8080/checkout -d '{\"amount\":4200}'", "make a purchase through phantom"],
+              ["git log --oneline / git diff main", "see what the refactor branch changes"],
+              ["git switch refactor/payments && make staging", "run the branch on :3001"],
+              ["phantom replay --target http://localhost:3001", "replay the purchase against it"],
+              ["echo $?", "exit status of the last command"],
+            ]) out([["hi", "  " + cmd.padEnd(52)], ["dim", note]]);
+            out([["dim", "also: ls, cat README.md, git branch, history, clear. tab completes, esc leaves the shell."]]);
+            return 0;
+          case "clear":
+            wipeScreen();
+            return 0;
+          case "history":
+            shell.history.forEach((entry, index) => out([["dim", String(index + 1).padStart(4) + "  "], ["fg", entry]]));
+            return 0;
+          case "ls":
+            out([["info", "src  "], ["fg", "Makefile  README.md  package.json"]]);
+            return 0;
+          case "pwd":
+            out([["fg", "/home/you/shop"]]);
+            return 0;
+          case "whoami":
+            out([["fg", "you"]]);
+            return 0;
+          case "cat":
+            if (args[0] === "README.md") {
+              out([["fg", "shop: the world's smallest checkout service."]]);
+              out([["fg", "POST /checkout charges the customer through stripe and returns an order."]]);
+              out([["fg", "GET /health says ok."]]);
+              return 0;
+            }
+            out([["fg", "cat: " + (args[0] || "") + ": No such file or directory"]]);
+            return 1;
+          case "echo":
+            out([["fg", args.map((arg) => (arg.startsWith("'") ? unquote(arg) : unquote(arg).split("$?").join(String(state.status)))).join(" ")]]);
+            return 0;
+          case "sudo":
+            out([["fg", "you is not in the sudoers file. This incident will be reported."]]);
+            return 1;
+          case "rm":
+            if (args.includes("/")) {
+              out([["fg", "rm: it is dangerous to operate recursively on '/'"]]);
+              out([["fg", "rm: use --no-preserve-root to override this failsafe"]]);
+              return 1;
+            }
+            out([["fg", "rm: refusing to delete things in a demo"]]);
+            return 1;
+          case "exit":
+            out([["dim", "nowhere to go. this shell lives in a web page."]]);
+            return 0;
+          case "git":
+            return git(args);
+          case "make":
+            return make(args);
+          case "curl":
+            return curl(args);
+          case "phantom":
+            return phantom(args, background);
+          default:
+            out([["fg", "zsh: command not found: " + program]]);
+            return 127;
+        }
+      }
+
+      function git(args) {
+        const state = shell.state;
+        const [sub, ...rest] = args;
+        if (sub === "switch" || sub === "checkout") {
+          const target = rest.filter((arg) => !arg.startsWith("-"))[0];
+          if (!BRANCH_LOG[target]) {
+            out([["fg", "fatal: invalid reference: " + (target || "")]]);
+            return 128;
+          }
+          if (target === state.branch) {
+            out([["fg", "Already on '" + target + "'"]]);
+            return 0;
+          }
+          state.branch = target;
+          out([["fg", "Switched to branch '" + target + "'"]]);
+          return 0;
+        }
+        if (sub === "branch") {
+          Object.keys(BRANCH_LOG).forEach((name) => out(name === state.branch ? [["ok", "* " + name]] : [["fg", "  " + name]]));
+          return 0;
+        }
+        if (sub === "status") {
+          out([["fg", "On branch " + state.branch]]);
+          out([["fg", "nothing to commit, working tree clean"]]);
+          return 0;
+        }
+        if (sub === "log") {
+          BRANCH_LOG[state.branch].forEach(([hash, message]) => out([["warn", hash + " "], ["fg", message]]));
+          return 0;
+        }
+        if (sub === "diff") {
+          if (state.branch === "main") {
+            out([["dim", "(you're on main. git switch refactor/payments first)"]]);
+            return 0;
+          }
+          for (const [tone, text] of [
+            ["hi", "diff --git a/src/payments.js b/src/payments.js"],
+            ["info", "@@ -14,9 +14,14 @@ export async function charge(order, trace) {"],
+            ["bad", "-  const body = { amount: order.amount, currency: order.currency };"],
+            ["ok", "+  const body = { amount: String(order.amount), currency: order.currency };"],
+            ["fg", "   const res = await stripe.post(\"/v1/charges\", body, trace);"],
+            ["ok", "+  if (res.slow) {"],
+            ["ok", "+    return stripe.post(\"/v1/charges\", body, trace);"],
+            ["ok", "+  }"],
+            ["fg", "   return res;"],
+          ]) out([[tone, text]]);
+          out([["dim", "(the retry runs even when the first charge went through)"]]);
+          return 0;
+        }
+        out([["fg", "git: '" + (sub || "") + "' is not something this demo knows. try switch, branch, log, diff, status"]]);
+        return 1;
+      }
+
+      function make(args) {
+        const state = shell.state;
+        if (args[0] === "staging") {
+          state.staging = state.branch;
+          out([["dim", "cargo-cult build... "], ["fg", "done"]]);
+          out([["fg", "staging listening on :3001 "], ["dim", "(branch " + state.branch + ")"]]);
+          return 0;
+        }
+        out([["fg", "make: *** No rule to make target '" + (args[0] || "") + "'.  Stop. "], ["dim", "(try make staging)"]]);
+        return 2;
+      }
+
+      function curl(args) {
+        const state = shell.state;
+        const target = args.map(unquote).find((arg) => /localhost:\d+|127\.0\.0\.1:\d+|^:\d+/.test(arg));
+        if (!target) {
+          out([["fg", "curl: try something like curl -s localhost:8080/checkout -d '{\"amount\":4200}'"]]);
+          return 2;
+        }
+        const match = target.match(/:(\d+)(\/[^\s]*)?/);
+        const port = match ? match[1] : "";
+        const path = (match && match[2]) || "/";
+        const data = flag(args, "-d") || flag(args, "--data");
+        if (port === "9000") {
+          if (!state.running) return refused(port);
+          out([["fg", JSON.stringify(state.sessions.map((s) => ({ id: s.id, method: s.method, uri: s.path, outbound: s.outbound })))]]);
+          return 0;
+        }
+        if (port === "8080" && !state.running) return refused(port);
+        if (port === "3001" && !state.staging) return refused(port);
+        if (!["8080", "3000", "3001"].includes(port)) return refused(port);
+        let amount = 4200;
+        try {
+          if (data) amount = JSON.parse(data).amount ?? amount;
+        } catch {
+          amount = 4200;
+        }
+        const method = data ? "POST" : "GET";
+        let status = 404;
+        let outbound = 0;
+        if (path.startsWith("/checkout") && method === "POST") {
+          const charge = hex(16);
+          const buggy = port === "3001" && state.staging === "refactor/payments";
+          out([["fg", JSON.stringify({ order_id: "ord_" + charge, charge_id: "ch_" + charge, amount: buggy ? String(amount) : amount, status: "confirmed" })]]);
+          status = 201;
+          outbound = 2;
+        } else if (path.startsWith("/health")) {
+          out([["fg", "{\"status\":\"ok\"}"]]);
+          status = 200;
+        } else {
+          out([["fg", "{\"error\":\"not found\"}"]]);
+        }
+        if (port === "8080") {
+          state.sessions.push({ id: hex(32), method, path, status, outbound, amount });
+        }
+        return 0;
+      }
+
+      function refused(port) {
+        out([["fg", "curl: (7) Failed to connect to localhost port " + port + " after 0 ms: Couldn't connect to server"]]);
+        return 7;
+      }
+
+      function phantom(args, background) {
+        const state = shell.state;
+        const [sub, ...rest] = args;
+        if (!sub || sub === "--help" || sub === "-h" || sub === "help") {
+          for (const text of [
+            "Record real traffic, replay it against another build, answer third-party calls from the recording.",
+            "",
+            "Usage: phantom <COMMAND>",
+            "",
+            "Commands:",
+            "  start   Start the inbound capture proxy, outbound sandbox proxy and control plane",
+            "  replay  Replay captured sessions through a running phantom and exit non-zero on drift",
+            "  help    Print this message or the help of the given subcommand(s)",
+          ]) out([["fg", text]]);
+          return 0;
+        }
+        if (sub === "--version" || sub === "-V") {
+          out([["fg", "phantom 0.1.0"]]);
+          return 0;
+        }
+        if (sub === "start") {
+          if (state.running) {
+            out([["bad", "phantom: failed to bind the inbound capture proxy on 0.0.0.0:8080: Address already in use (os error 98)"]]);
+            out([["dim", "(it's already running)"]]);
+            return 2;
+          }
+          state.running = true;
+          state.upstream = flag(rest, "--upstream") || "http://localhost:3000";
+          if (background) out([["fg", "[1] " + (40000 + Math.floor(Math.random() * 9000))]]);
+          out([["dim", "INFO "], ["fg", "inbound capture proxy listening "], ["dim", "address=127.0.0.1:8080 upstream=" + state.upstream]]);
+          out([["dim", "INFO "], ["fg", "outbound sandbox proxy listening "], ["dim", "address=127.0.0.1:8081"]]);
+          out([["dim", "INFO "], ["fg", "control plane listening "], ["dim", "address=127.0.0.1:9000 embedded_console=true"]]);
+          if (!background) out([["dim", "(sent to the background so you can keep typing)"]]);
+          return 0;
+        }
+        if (sub === "replay") return replay(rest);
+        out([["fg", "error: unrecognized subcommand '" + sub + "'"]]);
+        out([["fg", "For more information, try '--help'."]]);
+        return 2;
+      }
+
+      function replay(args) {
+        const state = shell.state;
+        const api = flag(args, "--api") || "http://127.0.0.1:9000";
+        if (!state.running) {
+          out([["fg", "phantom: cannot reach the control plane at " + api + "/api/sessions?limit=500: tcp connect error: Connection refused (os error 111)"]]);
+          return 2;
+        }
+        const target = flag(args, "--target");
+        const wanted = flagValues(args, "--session");
+        let selected = state.sessions;
+        if (wanted.length) {
+          selected = [];
+          for (const token of wanted) {
+            const hits = state.sessions.filter((s) => s.id.startsWith(token) || s.id.endsWith(token));
+            if (hits.length !== 1) {
+              out([["fg", "phantom: " + (hits.length ? "`" + token + "` is ambiguous, it matches " + hits.length + " sessions" : "no captured session matches `" + token + "`")]]);
+              return 2;
+            }
+            selected.push(hits[0]);
+          }
+        }
+        if (!selected.length) {
+          out([["fg", "phantom: nothing to replay: the store at " + api + " has no captured sessions"]]);
+          out([["dim", "(curl something through localhost:8080 first)"]]);
+          return 2;
+        }
+        const port = target ? (target.match(/:(\d+)/) || [])[1] : null;
+        const reachable = port === "3000" || (port === "3001" && state.staging !== null);
+        out([["dim", "-> "], ["fg", "replaying " + selected.length + " session(s) against " + (target || "the current mode url")]]);
+        out([]);
+        let passed = 0;
+        let failed = 0;
+        let errors = 0;
+        for (const session of selected) {
+          const route = (session.method + " " + session.path).padEnd(32);
+          if (!target || !reachable) {
+            errors += 1;
+            const reason = !target
+              ? "400 Bad Request: invalid target: no replay target given; pass target_url (phantom replay --target URL) or switch to sandbox mode with a staging url. phantom never falls back to the recording upstream"
+              : "502 Bad Gateway: upstream `" + target.replace(/\/$/, "") + session.path + "` failed: error sending request: Connection refused (os error 111)";
+            out([["warn", "ERR "], ["fg", "  " + shortId(session.id) + "  " + route]]);
+            out([["warn", "      " + reason]]);
+            continue;
+          }
+          const buggy = port === "3001" && state.staging === "refactor/payments" && session.path.startsWith("/checkout") && session.method === "POST";
+          const millis = (session.outbound ? 1.1 + Math.random() * 0.9 : 0.3 + Math.random() * 0.3).toFixed(2).padStart(8);
+          const statuses = (session.status + ">" + session.status).padStart(7);
+          const mocks = session.outbound + (buggy ? 1 : 0);
+          if (buggy) {
+            failed += 1;
+            const amount = JSON.stringify(session.amount);
+            out([["bad", "FAIL"], ["fg", "  " + shortId(session.id) + "  " + route + " " + statuses + "  " + millis + "ms  " + mocks + " mocks"]]);
+            out([["fg", "      "], ["odd", "!"], ["fg", "  "], ["info", "$.amount".padEnd(26)], ["fg", " type mismatch  " + amount + " -> " + JSON.stringify(String(session.amount))]]);
+            out([["fg", "      "], ["ok", "+"], ["fg", "  "], ["info", "$.outbound_extra[2]".padEnd(26)], ["fg", " added          duplicate of #1: POST https://api.stripe.com/v1/charges"]]);
+          } else {
+            passed += 1;
+            out([["ok", "PASS"], ["fg", "  " + shortId(session.id) + "  " + route + " " + statuses + "  " + millis + "ms  " + mocks + " mocks"]]);
+          }
+        }
+        out([]);
+        const summary = passed + " passed, " + failed + " failed, " + errors + " errors";
+        out([[failed + errors ? "bad" : "ok", summary]]);
+        if (errors && !target) out([["dim", "(add --target http://localhost:3001 for the branch, or http://localhost:3000 for the build that recorded)"]]);
+        else if (errors) out([["dim", "(nothing listening there. git switch refactor/payments && make staging starts :3001)"]]);
+        return errors ? 2 : failed ? 1 : 0;
+      }
+
+      const STORY = [
+        "phantom start --upstream http://localhost:3000 --ignore-field '$.idempotency_nonce' &",
+        "curl -s localhost:8080/checkout -d '{\"amount\":4200,\"currency\":\"usd\"}'",
+        "git switch refactor/payments && make staging",
+        "phantom replay --target http://localhost:3001",
+        "echo $?",
+      ];
+
+      async function story() {
+        const run_id = ++shell.generation;
+        shell.busy = true;
+        shell.state = freshState();
+        wipeScreen();
+        shell.typed = "";
+        for (const command of STORY) {
+          renderLive();
+          await pause(500);
+          for (const character of command) {
+            if (run_id !== shell.generation) return;
+            shell.typed += character;
+            renderLive();
+            await pause(character === " " ? 28 : 12 + Math.random() * 20);
+          }
+          await pause(280);
+          if (run_id !== shell.generation) return;
+          freeze();
+          run(shell.typed);
+          shell.typed = "";
+        }
+        if (run_id !== shell.generation) return;
+        out([]);
+        out([["dim", "-- your turn. click here and type "], ["hi", "help"], ["dim", " --"]]);
+        shell.busy = false;
+        renderLive();
+      }
+
+      function takeOver() {
+        if (shell.busy) {
+          shell.generation += 1;
+          shell.busy = false;
+          shell.typed = "";
+          if (!shell.state) shell.state = freshState();
+          shell.state.status = 130;
+          shell.cursor = shell.history.length;
+          freeze();
+          out([["dim", "^C"]]);
+          renderLive();
+        }
+        shell.input.value = shell.typed;
+        shell.input.focus({ preventScroll: true });
+      }
+
+      shell.view.addEventListener("click", takeOver);
+      $("shell-take").addEventListener("click", takeOver);
+      $("shell-replay").addEventListener("click", story);
+
+      function syncInput() {
+        shell.input.value = shell.typed;
+        renderLive();
+      }
+
+      shell.input.addEventListener("input", () => {
+        if (shell.busy) {
+          shell.input.value = "";
+          return;
+        }
+        shell.typed = shell.input.value.replace(/\s*\n\s*/g, " ");
+        const end = shell.input.value.length;
+        shell.input.setSelectionRange(end, end);
+        renderLive();
+      });
+
+      shell.input.addEventListener("keydown", (event) => {
+        if (shell.busy) return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const command = shell.typed;
+          freeze();
+          if (command.trim()) {
+            shell.history.push(command.trim());
+            run(command);
+          }
+          shell.cursor = shell.history.length;
+          shell.typed = "";
+          syncInput();
+        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+          event.preventDefault();
+          if (!shell.history.length) return;
+          shell.cursor = Math.max(0, Math.min(shell.history.length, shell.cursor + (event.key === "ArrowUp" ? -1 : 1)));
+          shell.typed = shell.history[shell.cursor] || "";
+          syncInput();
+        } else if (event.key === "Escape") {
+          shell.input.blur();
+        } else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+        } else if (event.key === "Tab" && !event.shiftKey && shell.typed) {
+          event.preventDefault();
+          const options = COMMANDS.filter((candidate) => candidate.startsWith(shell.typed));
+          if (options.length === 1) {
+            shell.typed = options[0];
+          } else if (options.length > 1) {
+            let shared = options[0];
+            for (const option of options) {
+              while (!option.startsWith(shared)) shared = shared.slice(0, -1);
+            }
+            if (shared.length > shell.typed.length) {
+              shell.typed = shared;
+            } else {
+              freeze();
+              out([["dim", options.join("    ")]]);
+            }
+          }
+          syncInput();
+        } else if (event.key === "l" && event.ctrlKey) {
+          event.preventDefault();
+          wipeScreen();
+          renderLive();
+        } else if (event.key === "c" && event.ctrlKey) {
+          event.preventDefault();
+          freeze();
+          out([["dim", "^C"]]);
+          shell.typed = "";
+          shell.state.status = 130;
+          shell.cursor = shell.history.length;
+          syncInput();
+        }
+      });
+
+      const storyObserver = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          storyObserver.disconnect();
+          story();
+        }
+      });
+      storyObserver.observe(shell.view);
+
+      const fitBoxes = document.querySelectorAll("#fit input");
+      function judgeFit() {
+        const score = [...fitBoxes].filter((box) => box.checked).length;
+        $("fit-score").textContent = score + "/" + fitBoxes.length;
+        $("fit-score").className = "tabular-nums " + (score >= 4 ? "text-ok" : score >= 2 ? "text-warn" : "text-dim");
+        const verdict = score === 0
+          ? ["dim", "tick a few lines"]
+          : score <= 1
+            ? ["fg", "probably not worth it yet. contract tests and a decent staging will carry you."]
+            : score <= 3
+              ? ["warn", "worth an afternoon. record a day of staging traffic and replay your next refactor against it."]
+              : ["ok", "this is the problem phantom was built for. start with step 1 below."];
+        $("fit-verdict").className = TONES[verdict[0]];
+        $("fit-verdict").textContent = verdict[1];
+      }
+      fitBoxes.forEach((box) => box.addEventListener("change", judgeFit));
+
+      const config = { upstream: $("cfg-upstream"), staging: $("cfg-staging"), ignore: $("cfg-ignore"), provider: $("cfg-provider") };
+      let language = "node";
+
+      function ignoreFlags() {
+        return config.ignore.value.split(",").map((path) => path.trim()).filter(Boolean).map((path) => " \\\n  --ignore-field '" + path + "'").join("");
+      }
+
+      function origin(raw) {
+        try {
+          return new URL(raw.trim()).origin;
+        } catch {
+          return raw.trim() || "https://api.stripe.com";
+        }
+      }
+
+      function renderSetup() {
+        const upstream = config.upstream.value.trim() || "http://localhost:3000";
+        const staging = config.staging.value.trim() || "http://localhost:3001";
+        const blocks = {
+          start: "phantom start \\\n  --upstream " + upstream + " \\\n  --db-path ./phantom.redb" + ignoreFlags(),
+          record: "curl -s localhost:8080/your/endpoint -H 'content-type: application/json' -d '{\"hello\":\"world\"}'\n\ncurl -s 'localhost:9000/api/sessions?limit=5' | jq '.[] | {id, uri: .inbound_request.uri, outbound: (.outbound_calls | length)}'",
+          noise: "phantom replay --target " + upstream + "\n\nphantom replay --target " + upstream + " --json | jq -r '.body_diffs[].path' | sort | uniq -c | sort -rn",
+          replay: "phantom replay --target " + staging + "\necho $?",
+          ci: "- name: replay recorded traffic against this branch\n  run: phantom replay --api http://phantom.internal:9000 --target \"$PREVIEW_URL\"",
+        };
+        document.querySelectorAll("[data-bind]").forEach((pre) => { pre.textContent = blocks[pre.dataset.bind]; });
+        const source = $("snippet-" + language).textContent.trim();
+        $("snippet").textContent = source.split("{{provider}}").join(origin(config.provider.value));
+      }
+
+      Object.values(config).forEach((field) => field.addEventListener("input", renderSetup));
+      document.querySelectorAll("[data-lang]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          language = tab.dataset.lang;
+          document.querySelectorAll("[data-lang]").forEach((other) => other.setAttribute("aria-selected", String(other === tab)));
+          renderSetup();
+        });
+      });
+      renderSetup();
+      document.querySelectorAll("[data-copy]").forEach(attachCopy);
+
+      function jsonType(value) {
+        if (value === null) return "null";
+        if (Array.isArray(value)) return "array";
+        return typeof value;
+      }
+
+      function childKey(parent, key) {
+        return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? parent + "." + key : parent + "[" + JSON.stringify(key) + "]";
+      }
+
+      function jsonDiff(expected, actual, path = "$", found = []) {
+        const left = jsonType(expected);
+        const right = jsonType(actual);
+        if (left === "object" && right === "object") {
+          const keys = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
+          for (const key of keys) {
+            const inLeft = Object.prototype.hasOwnProperty.call(expected, key);
+            const inRight = Object.prototype.hasOwnProperty.call(actual, key);
+            const child = childKey(path, key);
+            if (inLeft && inRight) jsonDiff(expected[key], actual[key], child, found);
+            else if (inLeft) found.push({ path: child, kind: "removed", expected: expected[key] });
+            else found.push({ path: child, kind: "added", actual: actual[key] });
+          }
+        } else if (left === "array" && right === "array") {
+          for (let index = 0; index < Math.max(expected.length, actual.length); index += 1) {
+            const child = path + "[" + index + "]";
+            if (index < expected.length && index < actual.length) jsonDiff(expected[index], actual[index], child, found);
+            else if (index < expected.length) found.push({ path: child, kind: "removed", expected: expected[index] });
+            else found.push({ path: child, kind: "added", actual: actual[index] });
+          }
+        } else if (left !== right) {
+          found.push({ path, kind: "type mismatch", expected, actual });
+        } else if (expected !== actual) {
+          found.push({ path, kind: "modified", expected, actual });
+        }
+        return found;
+      }
+
+      function parsePath(raw) {
+        const trimmed = raw.trim();
+        let rest = trimmed.startsWith("$") ? trimmed.slice(1) : trimmed.startsWith("[") ? trimmed : "." + trimmed;
+        const segments = [];
+        while (rest.length) {
+          if (rest[0] === ".") {
+            rest = rest.slice(1);
+            const stop = rest.search(/[.[]/);
+            const end = stop === -1 ? rest.length : stop;
+            const name = rest.slice(0, end);
+            if (!name) return null;
+            segments.push(name === "*" ? { any: true } : { key: name });
+            rest = rest.slice(end);
+          } else if (rest[0] === "[") {
+            rest = rest.slice(1);
+            if (rest[0] === "\"") {
+              const quoted = rest.match(/^"(?:[^"\\]|\\.)*"/);
+              if (!quoted) return null;
+              let key;
+              try { key = JSON.parse(quoted[0]); } catch { return null; }
+              rest = rest.slice(quoted[0].length);
+              if (rest[0] !== "]") return null;
+              rest = rest.slice(1);
+              segments.push({ key });
+            } else {
+              const end = rest.indexOf("]");
+              if (end === -1) return null;
+              const token = rest.slice(0, end).trim();
+              rest = rest.slice(end + 1);
+              if (token === "*") segments.push({ any: true });
+              else if (/^\d+$/.test(token)) segments.push({ index: Number(token) });
+              else return null;
+            }
+          } else {
+            return null;
+          }
+        }
+        return segments;
+      }
+
+      function ignoreRules(raw) {
+        const rules = [];
+        const invalid = [];
+        raw.split(",").map((part) => part.trim()).filter(Boolean).forEach((part) => {
+          const parsed = parsePath(part);
+          if (parsed) rules.push(parsed);
+          else invalid.push(part);
+        });
+        return { rules, invalid };
+      }
+
+      function isIgnored(rules, path) {
+        const target = parsePath(path);
+        if (!target) return false;
+        return rules.some((rule) => rule.length <= target.length && rule.every((segment, index) => {
+          if (segment.any) return true;
+          if (segment.key !== undefined) return target[index].key === segment.key;
+          return target[index].index === segment.index;
+        }));
+      }
+
+      function compact(value) {
+        if (value === undefined) return "-";
+        const text = JSON.stringify(value);
+        return text.length > 60 ? text.slice(0, 57) + "..." : text;
+      }
+
+      const SIGILS = { added: ["+", "ok"], removed: ["-", "bad"], modified: ["~", "warn"], "type mismatch": ["!", "odd"] };
+
+      const DIFF_PRESETS = {
+        checkout: {
+          left: { order_id: "ord_5c95e8d9", amount: 4200, currency: "usd", status: "confirmed", created_at: "2026-10-20T18:48:04Z" },
+          right: { order_id: "ord_5c95e8d9", amount: "4200", currency: "usd", status: "confirmed", created_at: "2026-10-20T19:12:36Z" },
+          ignore: "$.created_at",
+        },
+        reorder: {
+          left: { user: { id: 7, name: "ada" }, tags: ["a", "b"], total: 100 },
+          right: { total: 100.0, tags: ["a", "b"], user: { name: "ada", id: 7 } },
+          ignore: "",
+        },
+        array: {
+          left: { items: [{ sku: "a1", qty: 1, status: "paid" }, { sku: "b2", qty: 2, status: "paid" }, { sku: "c3", qty: 1, status: "paid" }] },
+          right: { items: [{ sku: "a1", qty: 1, status: "paid" }, { sku: "b2", qty: 2, status: "paid" }, { sku: "c3", qty: 1, status: "refunded" }] },
+          ignore: "$.items[*].updated_at",
+        },
+        rename: {
+          left: { customer: { email: "ada@example.com", phone: "+44 20 7946 0000" } },
+          right: { customer: { email_address: "ada@example.com", phone: "+44 20 7946 0000" } },
+          ignore: "",
+        },
+      };
+
+      function loadDiffPreset(name) {
+        const preset = DIFF_PRESETS[name];
+        $("diff-left").value = JSON.stringify(preset.left, null, 2);
+        $("diff-right").value = JSON.stringify(preset.right, null, 2).replace("\"total\": 100", "\"total\": 100.0");
+        $("diff-ignore").value = preset.ignore;
+        document.querySelectorAll("[data-diff-preset]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.diffPreset === name)));
+        renderDiff();
+      }
+
+      function parseSide(text, label, report) {
+        if (!text.trim()) return { value: undefined };
+        try {
+          return { value: JSON.parse(text) };
+        } catch (error) {
+          line(report, [["bad", label + " isn't valid JSON: " + error.message]]);
+          return null;
+        }
+      }
+
+      function renderDiff() {
+        const report = $("diff-out");
+        report.textContent = "";
+        const left = parseSide($("diff-left").value, "recorded", report);
+        const right = parseSide($("diff-right").value, "replay", report);
+        if (!left || !right) return;
+        const { rules, invalid } = ignoreRules($("diff-ignore").value);
+        invalid.forEach((pattern) => line(report, [["bad", "invalid ignore pattern `" + pattern + "`"]]));
+        let all;
+        if (left.value === undefined && right.value === undefined) all = [];
+        else if (left.value === undefined) all = [{ path: "$", kind: "added", actual: right.value }];
+        else if (right.value === undefined) all = [{ path: "$", kind: "removed", expected: left.value }];
+        else all = jsonDiff(left.value, right.value);
+        const kept = all.filter((entry) => !isIgnored(rules, entry.path));
+        const skipped = all.length - kept.length;
+        line(report, kept.length
+          ? [["bad", "FAIL"], ["fg", "  " + kept.length + " difference" + (kept.length === 1 ? "" : "s")], ["dim", skipped ? "  (" + skipped + " ignored)" : ""]]
+          : [["ok", "PASS"], ["fg", "  structurally identical"], ["dim", skipped ? "  (" + skipped + " ignored)" : ""]]);
+        for (const entry of kept) {
+          const [sigil, tone] = SIGILS[entry.kind];
+          line(report, [["fg", "  "], [tone, sigil], ["fg", "  "], ["info", entry.path.padEnd(28)], ["fg", " " + entry.kind.padEnd(14) + " " + compact(entry.expected) + " -> " + compact(entry.actual)]]);
+        }
+      }
+
+      document.querySelectorAll("[data-diff-preset]").forEach((tab) => tab.addEventListener("click", () => loadDiffPreset(tab.dataset.diffPreset)));
+      ["diff-left", "diff-right", "diff-ignore"].forEach((id) => $(id).addEventListener("input", renderDiff));
+      loadDiffPreset("checkout");
+
+      const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+      ["m-left-method", "m-right-method"].forEach((id) => {
+        METHODS.forEach((method) => {
+          const option = document.createElement("option");
+          option.value = method;
+          option.textContent = method;
+          $(id).append(option);
+        });
+      });
+
+      function canonicalJson(value) {
+        if (Array.isArray(value)) return "[" + value.map(canonicalJson).join(",") + "]";
+        if (value && typeof value === "object") {
+          return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson(value[key])).join(",") + "}";
+        }
+        return JSON.stringify(value);
+      }
+
+      function decodeJson(text) {
+        if (!text.trim()) return undefined;
+        try { return JSON.parse(text); } catch { return undefined; }
+      }
+
+      function decodeForm(text) {
+        const trimmed = text.trim();
+        if (!trimmed || !/^[\x21-\x7e]+$/.test(trimmed)) return undefined;
+        const fields = {};
+        for (const pair of trimmed.split("&").filter(Boolean)) {
+          const split = pair.indexOf("=");
+          if (split <= 0) return undefined;
+          let key;
+          let value;
+          try {
+            key = decodeURIComponent(pair.slice(0, split).replace(/\+/g, " "));
+            value = decodeURIComponent(pair.slice(split + 1).replace(/\+/g, " "));
+          } catch {
+            return undefined;
+          }
+          if (!key) return undefined;
+          if (!(key in fields)) fields[key] = value;
+          else if (Array.isArray(fields[key])) fields[key].push(value);
+          else fields[key] = [fields[key], value];
+        }
+        return Object.keys(fields).length ? fields : undefined;
+      }
+
+      function describeCall(method, rawUrl, body) {
+        let url;
+        try {
+          url = new URL(rawUrl.trim());
+        } catch {
+          return null;
+        }
+        const query = url.search.slice(1).split("&").filter(Boolean).sort().join("&");
+        const parsedJson = decodeJson(body);
+        const json = parsedJson === undefined ? decodeForm(body) : parsedJson;
+        const canonicalBody = json === undefined ? body : canonicalJson(json);
+        return {
+          method,
+          query,
+          authority: url.host.toLowerCase(),
+          path: url.pathname || "/",
+          canonical: [method, url.host.toLowerCase(), url.pathname || "/", query, canonicalBody].join("\n"),
+          json,
+        };
+      }
+
+      async function sha256(text) {
+        if (!window.crypto || !crypto.subtle) return null;
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+        return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+      }
+
+      const MATCH_PRESETS = {
+        order: [["POST", "https://api.stripe.com/v1/charges", { amount: 4200, currency: "usd", customer: "cus_123" }], ["POST", "https://api.stripe.com/v1/charges", { customer: "cus_123", currency: "usd", amount: 4200 }]],
+        nonce: [["POST", "https://api.stripe.com/v1/charges", { amount: 4200, currency: "usd", idempotency_nonce: "a91f03c2" }], ["POST", "https://api.stripe.com/v1/charges", { amount: 4200, currency: "usd", idempotency_nonce: "7be210d4" }]],
+        amount: [["POST", "https://api.stripe.com/v1/charges", { amount: 4200, currency: "usd" }], ["POST", "https://api.stripe.com/v1/charges", { amount: "4200", currency: "usd" }]],
+        endpoint: [["POST", "https://api.stripe.com/v1/charges", { amount: 4200, currency: "usd" }], ["POST", "https://api.stripe.com/v1/payment_intents", { amount: 4200, currency: "usd" }]],
+      };
+
+      function loadMatchPreset(name) {
+        const [left, right] = MATCH_PRESETS[name];
+        for (const [side, [method, url, body]] of [["left", left], ["right", right]]) {
+          $("m-" + side + "-method").value = method;
+          $("m-" + side + "-url").value = url;
+          $("m-" + side + "-body").value = JSON.stringify(body, null, 2);
+        }
+        document.querySelectorAll("[data-match-preset]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.matchPreset === name)));
+        renderMatch();
+      }
+
+      let matchGeneration = 0;
+      async function renderMatch() {
+        const current = ++matchGeneration;
+        const recorded = describeCall($("m-left-method").value, $("m-left-url").value, $("m-left-body").value);
+        const replayed = describeCall($("m-right-method").value, $("m-right-url").value, $("m-right-body").value);
+        const report = $("match-out");
+        if (!recorded || !replayed) {
+          report.textContent = "";
+          line(report, [["bad", "both urls need to be absolute, like https://api.stripe.com/v1/charges"]]);
+          return;
+        }
+        const [left, right] = await Promise.all([sha256(recorded.canonical), sha256(replayed.canonical)]);
+        if (current !== matchGeneration) return;
+        report.textContent = "";
+        line(report, [["dim", "recorded  "], ["odd", left ? left.slice(0, 24) + "..." : "(sha256 needs https)"], ["dim", "  " + recorded.canonical.split("\n").slice(0, 3).join(" ")]]);
+        line(report, [["dim", "replayed  "], ["odd", right ? right.slice(0, 24) + "..." : "(sha256 needs https)"], ["dim", "  " + replayed.canonical.split("\n").slice(0, 3).join(" ")]]);
+        line(report, []);
+        const identical = left && right ? left === right : recorded.canonical === replayed.canonical;
+        if (identical) {
+          line(report, [["ok", "exact match"], ["fg", ". same signature, so the sandbox returns this recording and nothing is reported."]]);
+          return;
+        }
+        if (recorded.method === replayed.method && recorded.authority === replayed.authority && recorded.path === replayed.path) {
+          const drift = recorded.json !== undefined && replayed.json !== undefined ? jsonDiff(recorded.json, replayed.json) : [];
+          line(report, [["warn", "method+path fallback"], ["fg", ". the recording still answers, but the request changed:"]]);
+          if (recorded.query !== replayed.query) {
+            line(report, [["fg", "  "], ["warn", "~"], ["fg", "  "], ["info", "$.outbound[0].query".padEnd(40)], ["fg", " " + JSON.stringify(recorded.query) + " -> " + JSON.stringify(replayed.query)]]);
+          }
+          const bodiesDiffer = recorded.canonical.split("\n").slice(4).join("\n") !== replayed.canonical.split("\n").slice(4).join("\n");
+          if (!drift.length && bodiesDiffer) line(report, [["fg", "  "], ["warn", "~"], ["fg", "  "], ["info", "$.outbound[0].request".padEnd(40)], ["fg", " body is not structured and differs as text"]]);
+          for (const entry of drift) {
+            const [sigil, tone] = SIGILS[entry.kind];
+            const path = entry.path.replace(/^\$/, "$.outbound[0].request");
+            line(report, [["fg", "  "], [tone, sigil], ["fg", "  "], ["info", path.padEnd(40)], ["fg", " " + compact(entry.expected) + " -> " + compact(entry.actual)]]);
+          }
+          line(report, [["dim", "a nonce or timestamp here is noise: --ignore-field it. a changed amount is the bug you're looking for."]]);
+          return;
+        }
+        line(report, [["bad", "no match"], ["fg", ". the sandbox answers 502 phantom_sandbox_miss and the run reports an unrecorded call."]]);
+      }
+
+      document.querySelectorAll("[data-match-preset]").forEach((tab) => tab.addEventListener("click", () => loadMatchPreset(tab.dataset.matchPreset)));
+      ["m-left-method", "m-left-url", "m-left-body", "m-right-method", "m-right-url", "m-right-body"].forEach((id) => {
+        $(id).addEventListener("input", renderMatch);
+        $(id).addEventListener("change", renderMatch);
+      });
+      loadMatchPreset("nonce");
+
+      const form = $("waitlist");
+      const log = $("waitlist-log");
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        log.textContent = "";
+        const email = form.email.value.trim();
+        const company = form.company.value.trim();
+        const volume = form.volume.value;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          line(log, [["bad", "error: that doesn't look like an email address"]]);
+          form.email.focus();
+          return;
+        }
+        line(log, [["dim", "> registering " + email + " ..."]]);
+        if (WAITLIST_ENDPOINT) {
+          try {
+            const response = await fetch(WAITLIST_ENDPOINT, {
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({ email, company, volume, source: "phantom-landing" }),
+            });
+            if (!response.ok) throw new Error("http " + response.status);
+            line(log, [["ok", "ok. you're on the list."]]);
+            form.reset();
+          } catch (error) {
+            line(log, [["bad", "failed: " + error.message + ". try again in a minute."]]);
+          }
+          return;
+        }
+        const title = "cloud waitlist: " + (company || email.split("@")[1]);
+        const body = ["email: " + email, "company: " + (company || "-"), "traffic: " + volume, "", "anything else we should know:"].join("\n");
+        window.open(REPOSITORY + "/issues/new?labels=cloud-waitlist&title=" + encodeURIComponent(title) + "&body=" + encodeURIComponent(body), "_blank", "noopener");
+        line(log, [["ok", "opened a prefilled issue on github. submit it and you're on the list."]]);
+        line(log, [["dim", "it's public, so remove anything you'd rather not share."]]);
+      });
+    </script>
+  </body>
+</html>

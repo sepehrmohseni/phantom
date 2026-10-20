@@ -1,0 +1,16 @@
+[build]
+target = "crates/phantom-ui/index.html"
+dist = "crates/phantom-ui/dist"
+public_url = "/"
+filehash = true
+
+[watch]
+watch = ["crates/phantom-ui/src", "crates/phantom-ui/index.html", "crates/phantom-core/src"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 9100
+open = false
+
+[[proxy]]
+backend = "http://127.0.0.1:9000/api/"
